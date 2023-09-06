@@ -1,0 +1,12 @@
+langchain 
+streamlit
+torch
+transformers
+requests
+einops
+accelerate
+sentence_transformers
+chromadb
+pdfminer.six
+bitsandbytes
+bs4
