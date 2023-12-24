@@ -51,7 +51,7 @@ Place your PDF files in the doc directory.
  ```
 ### - Run the app
  ```shell
-  streamlit run app.py
+  python3 app.py
 
  ```
 
