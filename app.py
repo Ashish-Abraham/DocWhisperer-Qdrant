@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 import pandas as pd
 import datasets
-from llama_index.core import (VectorStoreIndex, SimpleDirectoryReader, ServiceContext)
+from llama_index.core import (VectorStoreIndex, ServiceContext)
 from llama_index.core.settings import Settings
 from transformers import AutoTokenizer, AutoModel
 from qdrant_client import QdrantClient
@@ -14,17 +14,14 @@ import streamlit as st
 import ingest  # Import the ingest.py file
 from load_model import load_models  # Import the load_models function
 
-st.set_page_config(page_title="DocWhisperer", page_icon="🦙", layout="centered", initial_sidebar_state="auto", menu_items=None)
+st.set_page_config(page_title="DocWhisperer", page_icon="🧙‍♂️", layout="centered", initial_sidebar_state="auto", menu_items=None)
 client = QdrantClient(host='localhost', port=6333)
 vector_store = QdrantVectorStore(client=client, collection_name="ASM")
 
 @st.cache_resource(show_spinner=False)
 def load_data(_llm):
-    with st.spinner(text="Loading and indexing the Streamlit docs – hang tight! This should take 1-2 minutes."):
-        reader = SimpleDirectoryReader(input_dir="./data", recursive=True)
-        docs = reader.load_data()
-        service_context = ServiceContext.from_defaults(llm=llm)
-        index = VectorStoreIndex.from_documents(docs, service_context=service_context)
+    with st.spinner(text="Loading the index – hang tight!"):
+        index = VectorStoreIndex.load_from_disk("ASM_index.json", service_context=ServiceContext.from_defaults(_llm=llm))
     return index
 
 # Add a file uploader for PDF files
@@ -33,6 +30,7 @@ uploaded_files = st.file_uploader("Choose PDF files", type="pdf", accept_multipl
 if uploaded_files:
     # Invoke ingest.py with the uploaded PDF files
     ingest.ingest_pdfs(uploaded_files, client, "ASM")
+    st.success("PDF files successfully ingested!")
 
 if __name__ == '__main__':
     embed_model, llm = load_models()  # Load the models
