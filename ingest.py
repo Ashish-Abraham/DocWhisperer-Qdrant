@@ -1,36 +1,29 @@
 import os
 from pathlib import Path
-from llama_index import VectorStoreIndex, SimpleDirectoryReader, LLMPredictor, PromptHelper
+from llama_index import GPTVectorStoreIndex, GPTTextSplitter
 from langchain.document_loaders import PyPDFLoader
 from sentence_transformers import SentenceTransformer
-from llama_index.vector_stores import QdrantVectorStore
-from llama_index import StorageContext
-from qdrant_client import QdrantClient
+from llama_index.vector_stores.qdrant import QdrantVectorStore
 
-# Load PDF files
-dir_path = Path("path/to/pdf/files")
-pdf_files = list(dir_path.glob("*.pdf"))
-documents = []
-for pdf_file in pdf_files:
-    loader = PyPDFLoader(str(pdf_file))
-    docs = loader.load()
-    documents.extend(docs)
+def ingest_pdfs(uploaded_files, client, collection_name):
+    documents = []
+    for uploaded_file in uploaded_files:
+        loader = PyPDFLoader(uploaded_file.read())
+        docs = loader.load()
+        documents.extend(docs)
 
-# Create vector store
-model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1')
-client = QdrantClient(":memory:")
-vector_store = QdrantVectorStore(client=client, collection_name="pdf_documents")
+    # Create vector store
+    model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1')
+    vector_store = QdrantVectorStore(client=client, collection_name=collection_name)
 
-# Create the index
-storage_context = StorageContext.from_defaults(vector_store=vector_store)
-index = VectorStoreIndex.from_documents(
-    documents,
-    storage_context=storage_context,
-    text_splitter=GPTTextSplitter.from_chunk_size(700, chunk_overlap=50),
-    embedding=model.encode
-)
+    # Create the index
+    index = GPTVectorStoreIndex.from_documents(
+        documents,
+        embedding=model.encode,
+        text_splitter=GPTTextSplitter.from_chunk_size(700, chunk_overlap=50),
+        vector_store=vector_store
+    )
 
-# Save the index to disk
-index.storage_context.persist("pdf_index.json")
-
-print("Vector DB Successfully Created!")
+    # Save the index to disk
+    index.storage_context.persist(f"{collection_name}_index.json")
+    print("Vector DB Successfully Created!")
