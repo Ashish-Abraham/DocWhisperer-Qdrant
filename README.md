@@ -43,7 +43,7 @@ Imagine unlocking the hidden conversations within your dusty PDFs. DocWhisperer 
 
 ### Usage
  ```shell
-  python3 app.py
+  streamlit run app.py
 
  ```
 
