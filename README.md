@@ -16,6 +16,7 @@ Imagine unlocking the hidden conversations within your dusty PDFs. DocWhisperer 
 ## Prerequisites
 * Python 3
 * GPU support for LLM
+* Docker
 
 ## Getting Started
 
