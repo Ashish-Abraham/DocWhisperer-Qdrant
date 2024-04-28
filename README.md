@@ -40,17 +40,8 @@ Imagine unlocking the hidden conversations within your dusty PDFs. DocWhisperer 
   pip install -r requirements.txt
   ```
 
-## Database Preparation
-### - Add PDF Documents
-```shell
-Place your PDF files in the doc directory.
-```
-### - Ingest PDF Data
- ```shell
-  python3 ingest.py
 
- ```
-### - Run the app
+### Usage
  ```shell
   python3 app.py
 
