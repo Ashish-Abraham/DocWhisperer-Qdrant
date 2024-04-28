@@ -1,6 +1,7 @@
 transformers==4.36.1
 qdrant-client==1.7.0
 langchain==0.0.350
+llama-index
 sentence-transformers==2.2.2
 huggingface_hub==0.19.4
 PyPDF2
