@@ -1,81 +1,60 @@
-import torch
-from transformers import pipeline
-from sentence_transformers import SentenceTransformer
+import datetime
+import os
+import random
+from pathlib import Path
+from typing import Any
+import pandas as pd
+import datasets
+from llama_index.core import (VectorStoreIndex, SimpleDirectoryReader, ServiceContext)
+from llama_index.core.settings import Settings
+from transformers import AutoTokenizer, AutoModel
 from qdrant_client import QdrantClient
-from qdrant_client.http import models
-from typing import List
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+import streamlit as st
+import ingest  # Import the ingest.py file
+from load_model import load_models  # Import the load_models function
 
-model_name = "sentence-transformers/all-MiniLM-L6-v2"
-collection_name = "ASM"
-embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+st.set_page_config(page_title="DocWhisperer", page_icon="🦙", layout="centered", initial_sidebar_state="auto", menu_items=None)
+client = QdrantClient(host='localhost', port=6333)
+vector_store = QdrantVectorStore(client=client, collection_name="ASM")
 
-qdrant_client = QdrantClient(host='localhost', port=6333)
-collections = qdrant_client.get_collections()
-print(collections)
+@st.cache_resource(show_spinner=False)
+def load_data(_llm):
+    with st.spinner(text="Loading and indexing the Streamlit docs – hang tight! This should take 1-2 minutes."):
+        reader = SimpleDirectoryReader(input_dir="./data", recursive=True)
+        docs = reader.load_data()
+        service_context = ServiceContext.from_defaults(llm=llm)
+        index = VectorStoreIndex.from_documents(docs, service_context=service_context)
+    return index
 
-# load the reader model into a question-answering pipeline
-reader = pipeline("question-answering", model=model_name, tokenizer=model_name)
+# Add a file uploader for PDF files
+uploaded_files = st.file_uploader("Choose PDF files", type="pdf", accept_multiple_files=True)
 
-def get_context(query: str, top_k: int) -> List[str]:
-    """
-    Get the relevant context from the database for a given query
+if uploaded_files:
+    # Invoke ingest.py with the uploaded PDF files
+    ingest.ingest_pdfs(uploaded_files, client, "ASM")
 
-    Args:
-        query (str): What do we want to know?
-        top_k (int): Top K results to return
-
-    Returns:
-        context (List[str]):
-    """
-    try:
-        encoded_query = embedding_model.encode(query).tolist()  
-
-        result = qdrant_client.search(
-            collection_name=collection_name,
-            query_vector=encoded_query,
-            limit=top_k,
-        )  # search qdrant collection for context passage with the answer
-
-        context = [
-            [x.payload["text"]] for x in result
-        ]  
-        return context
-
-    except Exception as e:
-        print({e})
-
-
-
-def get_response(query: str, context: List[str]):
-    """
-    Extract the answer from the context for a given query
-
-    Args:
-        query (str): _description_
-        context (list[str]): _description_
-    """
-    results = []
-    for c in context:
-        # feed the reader the query and contexts to extract answers
-        answer = reader(question=query, context=c[0])
-        results.append(answer)
-
-    # sort the result based on the score from reader model
-    results = sorted(results, key=lambda x: x["score"], reverse=True)
-    for i in range(len(results)):
-        print(f"{i+1}", end=" ")
-        print(
-            "Answer: ",
-            results[i]["answer"],
-            "\n  score: ",
-            results[i]["score"],
-        )
-
-
-query = "QUERY HERE"
-context = get_context(query, top_k=1)
-print("Context: {}\n".format(context))
-
-get_response(query, context)
-client.delete_collection(collection_name=collection_name)
-
+if __name__ == '__main__':
+    embed_model, llm = load_models()  # Load the models
+    Settings.llm = llm
+    Settings.embed_model = embed_model
+    st.title("DocWhisperer🧙‍♂️")  # Changed the title
+    index = load_data(llm)
+    if "chat_engine" not in st.session_state.keys():
+        # Initialize the chat engine
+        st.session_state.chat_engine = index.as_chat_engine(chat_mode="condense_question", verbose=True)
+    if prompt := st.chat_input("Your question"):
+        # Prompt for user input and save to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        for message in st.session_state.messages:
+            # Display the prior chat messages
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+        # If last message is not from assistant, generate a new response
+        if st.session_state.messages[-1]["role"] != "assistant":
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    response = st.session_state.chat_engine.chat(prompt)
+                    st.write(response.response)
+                    message = {"role": "assistant", "content": response.response}
+                    st.session_state.messages.append(message)
