@@ -1,58 +1,114 @@
-import datetime
 import os
-import random
 from pathlib import Path
-from typing import Any
+import streamlit as st
 import pandas as pd
-import datasets
-from llama_index.core import (VectorStoreIndex, ServiceContext)
-from llama_index.core.settings import Settings
-from transformers import AutoTokenizer, AutoModel
 from qdrant_client import QdrantClient
 from llama_index.vector_stores.qdrant import QdrantVectorStore
-import streamlit as st
-import ingest  # Import the ingest.py file
-from load_model import load_models  # Import the load_models function
+from llama_index.core import VectorStoreIndex, ServiceContext
+from llama_index.core.settings import Settings
+import ingest
+from load_model import load_models
 
-st.set_page_config(page_title="DocWhisperer", page_icon="🧙‍♂️", layout="centered", initial_sidebar_state="auto", menu_items=None)
-client = QdrantClient(host='localhost', port=6333)
-vector_store = QdrantVectorStore(client=client, collection_name="ASM")
+st.set_page_config(
+    page_title="DocWhisperer", 
+    page_icon="🧙‍♂️", 
+    layout="wide", 
+    initial_sidebar_state="auto"
+)
 
-@st.cache_resource(show_spinner=False)
-def load_data(_llm):
-    with st.spinner(text="Loading the index – hang tight!"):
-        index = VectorStoreIndex.load_from_disk("ASM_index.json", service_context=ServiceContext.from_defaults(_llm=llm))
+st.markdown("""
+    <style>
+    .main { padding: 2rem; }
+    .stButton>button { 
+        width: 100%; 
+        border-radius: 5px; 
+        height: 3em; 
+        background-color: #9933FF; 
+        color: white; 
+    }
+    .stTextInput>div>div>input { border-radius: 5px; }
+    .css-1d391kg { padding: 2rem 1rem; }
+    .stAlert { padding: 1rem; border-radius: 5px; }
+    </style>
+""", unsafe_allow_html=True)
+
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+
+@st.cache_resource
+def initialize_vector_store():
+    client = QdrantClient(host="localhost", port=6333)
+    return QdrantVectorStore(client=client, collection_name="ASM")
+
+@st.cache_resource
+def load_data(embed_model, llm):
+    vector_store = initialize_vector_store()
+    service_context = ServiceContext.from_defaults(embed_model=embed_model, llm=llm)
+    index = VectorStoreIndex.from_vector_store(vector_store, service_context)
     return index
 
-# Add a file uploader for PDF files
-uploaded_files = st.file_uploader("Choose PDF files", type="pdf", accept_multiple_files=True)
+def main():
+    st.sidebar.image("images/w1_noback.png", width=100)
+    st.sidebar.title("DocWhisperer")
+    st.sidebar.markdown("---")
 
-if uploaded_files:
-    # Invoke ingest.py with the uploaded PDF files
-    ingest.ingest_pdfs(uploaded_files, client, "ASM")
-    st.success("PDF files successfully ingested!")
+    uploaded_files = st.sidebar.file_uploader(
+        "📄 Upload your PDF files",
+        type="pdf",
+        accept_multiple_files=True
+    )
+
+    if uploaded_files:
+        with st.spinner("Processing your documents... 📚"):
+            try:
+                client = QdrantClient(host="localhost", port=6333)
+                ingest.ingest_pdfs(uploaded_files, client, "ASM")
+                st.success("✨ Documents successfully processed!")
+            except Exception as e:
+                st.error(f"Error processing documents: {str(e)}")
+
+    if st.sidebar.button("🧹 Clear Chat"):
+        st.session_state.messages = []
+        st.experimental_rerun()
+
+    embed_model, llm = load_models()
+    Settings.embed_model = embed_model
+
+    st.title("DocWhisperer 🧙‍♂️")
+
+    if not st.session_state.messages:
+        st.markdown("""
+        ### 👋 Welcome to DocWhisperer!
+
+        I'm your magical document assistant. Here's how to get started:
+        1. Upload your PDF documents using the sidebar
+        2. Ask me anything about your documents
+        3. I'll search through them and provide detailed answers
+
+        Let's begin our journey through your documents! ✨
+        """)
+
+    index = load_data(embed_model, llm)
+    chat_engine = index.as_chat_engine(streaming=True)
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+
+    if prompt := st.chat_input("Ask me anything about your documents... 💭"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        with st.chat_message("user"):
+            st.write(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("🤔 Thinking..."):
+                try:
+                    response = chat_engine.stream_chat(prompt)
+                    response_text = st.write_stream(response.response_gen)
+                    st.session_state.messages.append({"role": "assistant", "content": response_text})
+                except Exception as e:
+                    st.error("I apologize, but I encountered an error. Please try rephrasing your question.")
 
 if __name__ == '__main__':
-    embed_model, llm = load_models()  # Load the models
-    Settings.llm = llm
-    Settings.embed_model = embed_model
-    st.title("DocWhisperer🧙‍♂️")  # Changed the title
-    index = load_data(llm)
-    if "chat_engine" not in st.session_state.keys():
-        # Initialize the chat engine
-        st.session_state.chat_engine = index.as_chat_engine(chat_mode="condense_question", verbose=True)
-    if prompt := st.chat_input("Your question"):
-        # Prompt for user input and save to chat history
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        for message in st.session_state.messages:
-            # Display the prior chat messages
-            with st.chat_message(message["role"]):
-                st.write(message["content"])
-        # If last message is not from assistant, generate a new response
-        if st.session_state.messages[-1]["role"] != "assistant":
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    response = st.session_state.chat_engine.chat(prompt)
-                    st.write(response.response)
-                    message = {"role": "assistant", "content": response.response}
-                    st.session_state.messages.append(message)
+    main()
